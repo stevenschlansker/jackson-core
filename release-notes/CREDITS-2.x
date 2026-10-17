@@ -560,7 +560,17 @@ Burak KALAYCI (@kalayciburak)
    supplementary character splits across a `read()` boundary
   (2.21.7)
 
+David R. MacIver (@DRMacIver)
+ * Reported #1742: Non-blocking parser returns `NOT_AVAILABLE` but does not resume when
+   a feed ends inside an escaped surrogate pair in a property name
+  (2.21.8)
+
 Elankumaran Srinivasan (@elang2)
  * Contributed #1683: `ReaderBasedJsonParser` should reject JSON-escaped lone
    surrogates in field names (mirror of #1541 fix in `UTF8StreamJsonParser`)
-  (2.23.0)
+  (2.21.8)
+
+@ItsDeadlyProgrammer
+ * Contributed #1756: Non-blocking parser does not decode multi-byte UTF-8 character
+   after backslash escape
+  (2.21.8)

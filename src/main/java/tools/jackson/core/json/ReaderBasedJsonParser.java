@@ -1463,11 +1463,9 @@ public class ReaderBasedJsonParser
                 ++fractLen;
             }
             // must be followed by sequence of ints, one minimum
-            if (fractLen == 0) {
-                if (!isEnabled(JsonReadFeature.ALLOW_TRAILING_DECIMAL_POINT_FOR_NUMBERS)) {
-                    _reportUnexpectedNumberChar(ch, "Decimal point not followed by a digit");
-                }
-            } else if (ch == INT_PERIOD) {
+            _verifyFractionDigits(fractLen, intLen, ch);
+            // [core#679]: no second decimal point
+            if ((fractLen > 0) && (ch == INT_PERIOD)) {
                 _reportUnexpectedNumberChar(ch, "Cannot parse number with more than one decimal point");
             }
         }
@@ -1643,10 +1641,13 @@ public class ReaderBasedJsonParser
             }
         }
 
-        int fractLen = -1;
+        // 13-Oct-2026, tatu: [core#1766] Lengths start at 0 (not -1 for "absent");
+        //   `isFloat` tracks whether fraction and/or exponent was seen
+        boolean isFloat = false;
+        int fractLen = 0;
         // And then see if we get other parts
         if (c == '.') { // yes, fraction
-            fractLen = 0;
+            isFloat = true;
             if (outPtr >= outBuf.length) {
                 outBuf = _textBuffer.finishCurrentSegment();
                 outPtr = 0;
@@ -1665,27 +1666,24 @@ public class ReaderBasedJsonParser
                 }
                 ++fractLen;
                 if (outPtr >= outBuf.length) {
-                    // 07-Sep-2026, tatu: [core#1686] Check length before growing buffer;
-                    //   `expLen` still -1 ("none") here so must not over-estimate
-                    _streamReadConstraints.validateFPLength(intLen + fractLen - 1);
+                    // 07-Sep-2026, tatu: [core#1686] Check length before growing buffer
+                    _streamReadConstraints.validateFPLength(intLen + fractLen);
                     outBuf = _textBuffer.finishCurrentSegment();
                     outPtr = 0;
                 }
                 outBuf[outPtr++] = c;
             }
             // must be followed by sequence of ints, one minimum
-            if (fractLen == 0) {
-                if (!isEnabled(JsonReadFeature.ALLOW_TRAILING_DECIMAL_POINT_FOR_NUMBERS)) {
-                    _reportUnexpectedNumberChar(c, "Decimal point not followed by a digit");
-                }
-            } else if (c == INT_PERIOD) {
+            _verifyFractionDigits(fractLen, intLen, c);
+            // [core#679]: no second decimal point
+            if ((fractLen > 0) && (c == INT_PERIOD)) {
                 _reportUnexpectedNumberChar(c, "Cannot parse number with more than one decimal point");
             }
         }
 
-        int expLen = -1;
+        int expLen = 0;
         if ((c | 0x20) == INT_e) { // ~ 'eE' exponent?
-            expLen = 0;
+            isFloat = true;
             if (outPtr >= outBuf.length) {
                 outBuf = _textBuffer.finishCurrentSegment();
                 outPtr = 0;
@@ -1739,7 +1737,7 @@ public class ReaderBasedJsonParser
         // And there we have it!
         // 26-Jun-2022, tatu: Careful here, as non-standard numbers can
         //    cause surprises - cannot use plain "reset()" but apply diff logic
-        if (fractLen < 0 && expLen < 0) { // integer
+        if (!isFloat) {
             return resetInt(neg, intLen);
         }
         return resetFloat(neg, intLen, fractLen, expLen);
@@ -1887,7 +1885,7 @@ public class ReaderBasedJsonParser
             }
         }
         if (!isEnabled(JsonReadFeature.ALLOW_LEADING_PLUS_SIGN_FOR_NUMBERS) && hasSign && !negative) {
-            _reportUnexpectedNumberChar('+', "JSON spec does not allow numbers to have plus signs: enable `JsonReadFeature.ALLOW_LEADING_PLUS_SIGN_FOR_NUMBERS` to allow");
+            _reportLeadingPlusSignNotAllowed();
         }
         final String message = negative ?
                 "expected digit (0-9) to follow minus sign, for valid numeric value" :
@@ -2257,7 +2255,7 @@ public class ReaderBasedJsonParser
                         break;
                     }
                     if (i < INT_SPACE) {
-                        _throwUnquotedSpace(i, "string value");
+                        _handleInvalidStringChar(i);
                     }
                 }
             }
@@ -2380,7 +2378,7 @@ public class ReaderBasedJsonParser
                      */
                     c = _decodeEscaped();
                 } else if (i < INT_SPACE) {
-                    _throwUnquotedSpace(i, "string value");
+                    _handleInvalidStringChar(i);
                 } // anything else?
             }
             // Need more room?
@@ -2437,7 +2435,9 @@ public class ReaderBasedJsonParser
                     }
                     if (i < INT_SPACE) {
                         _inputPtr = inPtr;
-                        _throwUnquotedSpace(i, "string value");
+                        _handleInvalidStringChar(i);
+                        inPtr = _inputPtr;
+                        inLen = _inputEnd;
                     }
                 }
             }
@@ -2506,7 +2506,9 @@ public class ReaderBasedJsonParser
                     }
                     if (i < INT_SPACE) {
                         _inputPtr = inPtr;
-                        _throwUnquotedSpace(i, "string value");
+                        _handleInvalidStringChar(i);
+                        inPtr = _inputPtr;
+                        inLen = _inputEnd;
                     }
                 }
             }
@@ -2532,6 +2534,18 @@ public class ReaderBasedJsonParser
     /* Internal methods, other parsing
     /**********************************************************************
      */
+
+    @Override // @since 2.21.8
+    protected void _handleLinefeedInString(int c) throws JacksonException
+    {
+        // with "\r\n", count row on '\n' instead
+        if (c == INT_CR
+                && (_inputPtr < _inputEnd || _loadMore()) && _inputBuffer[_inputPtr] == '\n') {
+            return;
+        }
+        ++_currInputRow;
+        _currInputRowStart = _inputPtr;
+    }
 
     // We actually need to check the character value here
     // (to see if we have \n following \r).
@@ -2941,6 +2955,12 @@ public class ReaderBasedJsonParser
             break;
 
         default:
+            // 09-Oct-2026, tatu: [core#1744] Backslash-escaped raw surrogate (half of
+            //   supplementary character) not allowed, same as with byte-based parsers
+            if (Character.isSurrogate(c)) {
+                throw _constructReadException("Unrecognized character escape "+_getCharDesc(c),
+                        _currentLocationMinusOne());
+            }
             return _handleUnrecognizedCharacterEscape(c);
         }
 

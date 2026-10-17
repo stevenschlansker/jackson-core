@@ -873,13 +873,13 @@ public class WriterBasedJsonGenerator
         }
         _verifyValueWrite(WRITE_NUMBER);
         if (useFast) {
-            if ((_outputTail + NumberOutput.MAX_DOUBLE_BYTES) > _outputEnd) {
+            if ((_outputTail + NumberOutput.MAX_DOUBLE_CHARS) > _outputEnd) {
                 _flushBuffer();
             }
             _outputTail = NumberOutput.outputDouble(d, _outputBuffer, _outputTail);
             return this;
         }
-        return writeRaw(NumberOutput.toString(d, false));
+        return writeRaw(NumberOutput.toString(d, useFast));
     }
 
     // Number text is all ASCII and needs no escaping, so write it out raw, same as
@@ -889,10 +889,10 @@ public class WriterBasedJsonGenerator
     {
         _verifyValueWrite(WRITE_STRING);
         if (!useFast) {
-            _writeQuotedRaw(NumberOutput.toString(d, false));
+            _writeQuotedRaw(NumberOutput.toString(d, useFast));
             return;
         }
-        if ((_outputTail + NumberOutput.MAX_DOUBLE_BYTES + 2) > _outputEnd) {
+        if ((_outputTail + NumberOutput.MAX_DOUBLE_CHARS + 2) > _outputEnd) {
             _flushBuffer();
         }
         _outputBuffer[_outputTail++] = _quoteChar;
@@ -911,23 +911,23 @@ public class WriterBasedJsonGenerator
         }
         _verifyValueWrite(WRITE_NUMBER);
         if (useFast) {
-            if ((_outputTail + NumberOutput.MAX_FLOAT_BYTES) > _outputEnd) {
+            if ((_outputTail + NumberOutput.MAX_FLOAT_CHARS) > _outputEnd) {
                 _flushBuffer();
             }
             _outputTail = NumberOutput.outputFloat(f, _outputBuffer, _outputTail);
             return this;
         }
-        return writeRaw(NumberOutput.toString(f, false));
+        return writeRaw(NumberOutput.toString(f, useFast));
     }
 
     private void _writeQuotedFloat(float f, boolean useFast) throws JacksonException
     {
         _verifyValueWrite(WRITE_STRING);
         if (!useFast) {
-            _writeQuotedRaw(NumberOutput.toString(f, false));
+            _writeQuotedRaw(NumberOutput.toString(f, useFast));
             return;
         }
-        if ((_outputTail + NumberOutput.MAX_FLOAT_BYTES + 2) > _outputEnd) {
+        if ((_outputTail + NumberOutput.MAX_FLOAT_CHARS + 2) > _outputEnd) {
             _flushBuffer();
         }
         _outputBuffer[_outputTail++] = _quoteChar;
@@ -1220,9 +1220,9 @@ public class WriterBasedJsonGenerator
             }
 
             // Ok, bumped into something that needs escaping.
-            /* First things first: need to flush the buffer.
-             * Inlined, as we don't want to lose tail pointer
-             */
+
+            // First things first: need to flush the buffer.
+            // Inlined, as we don't want to lose tail pointer
             int flushLen = (_outputTail - _outputHead);
             if (flushLen > 0) {
                 try {
@@ -1231,9 +1231,8 @@ public class WriterBasedJsonGenerator
                     throw _wrapIOFailure(e);
                 }
             }
-            /* In any case, tail will be the new start, so hopefully
-             * we have room now.
-             */
+            // In any case, tail will be the new start, so hopefully
+            // we have room now.
             char c = _outputBuffer[_outputTail++];
             _prependOrWriteCharacterEscape(c, escCodes[c]);
         }
@@ -1299,9 +1298,9 @@ public class WriterBasedJsonGenerator
             }
 
             // Ok, bumped into something that needs escaping.
-            /* First things first: need to flush the buffer.
-             * Inlined, as we don't want to lose tail pointer
-             */
+
+            // First things first: need to flush the buffer.
+            // Inlined, as we don't want to lose tail pointer
             int flushLen = (ptr - start);
             if (flushLen > 0) {
                 try {
